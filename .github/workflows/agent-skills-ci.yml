@@ -1,0 +1,123 @@
+name: agent-skills-ci
+
+on:
+  pull_request:
+    paths:
+      - ".agents/skills/**"
+      - ".github/workflows/agent-skills-ci.yml"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: agent-skills-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mjs-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: install
+        working-directory: .agents/skills/agent-skill-kit-commons/packages/mjs
+        run: make ci-install
+      - name: ci
+        working-directory: .agents/skills/agent-skill-kit-commons/packages/mjs
+        run: make ci
+      - name: validate suite
+        run: |
+          mkdir -p artifacts
+          npm exec --prefix .agents/skills/agent-skill-kit-commons/packages/mjs -- skills-ref validate .agents/skills/ \
+            --extra-tiers company,enterprise,application --format json --no-color \
+            > artifacts/validate.json || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mjs-reports
+          path: artifacts/
+
+  py-ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v3
+      - name: install
+        working-directory: .agents/skills/agent-skill-kit-commons/packages/py
+        run: make ci-install
+      - name: ci
+        working-directory: .agents/skills/agent-skill-kit-commons/packages/py
+        run: make ci
+
+  gate:
+    runs-on: ubuntu-latest
+    needs: [mjs-ci, py-ci]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+      - name: install (gate-only mjs runtime)
+        working-directory: .agents/skills/agent-skill-kit-commons/packages/mjs
+        run: make ci-install
+      - name: lint
+        run: |
+          mkdir -p artifacts
+          npm exec --prefix .agents/skills/agent-skill-kit-commons/packages/mjs -- skills-ref lint .agents/skills/ \
+            --format json --no-color > artifacts/lint.json || true
+      - name: audit
+        run: |
+          npm exec --prefix .agents/skills/agent-skill-kit-commons/packages/mjs -- skills-ref audit .agents/skills/ \
+            --format json --no-color > artifacts/audit.json
+      - name: deps
+        run: |
+          npm exec --prefix .agents/skills/agent-skill-kit-commons/packages/mjs -- skills-ref deps .agents/skills/ \
+            --extra-tiers company,enterprise,application --format json --no-color \
+            > artifacts/deps.json
+      - uses: actions/download-artifact@v4
+        with:
+          name: mjs-reports
+          path: artifacts/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gate-reports
+          path: artifacts/
+      - name: comment summary on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require("fs");
+            const reports = {};
+            for (const name of ["validate", "lint", "audit", "deps"]) {
+              try { reports[name] = JSON.parse(fs.readFileSync(`artifacts/${name}.json`, "utf8")); }
+              catch (e) { reports[name] = { error: String(e) }; }
+            }
+            const fmt = (r) => r.summary
+              ? `errors: ${r.summary.errors ?? "?"}, warnings: ${r.summary.warnings ?? "?"}`
+              : (r.error ? `(error: ${r.error})` : "(no summary)");
+            const body = [
+              "### Agent Skills CI",
+              "",
+              "| Check | Result |",
+              "| ----- | ------ |",
+              `| validate | ${fmt(reports.validate)} |`,
+              `| lint | ${fmt(reports.lint)} |`,
+              `| audit | ${fmt(reports.audit)} |`,
+              `| deps | ${fmt(reports.deps)} |`,
+              "",
+              "<sub>Posted by `agent-skills-ci`. Re-runs on every push to this PR.</sub>",
+              "<!-- agent-skills-ci-marker -->",
+            ].join("\n");
+            const { owner, repo, number: issue_number } = context.issue;
+            const existing = (await github.rest.issues.listComments({ owner, repo, issue_number })).data
+              .find(c => c.body && c.body.includes("<!-- agent-skills-ci-marker -->"));
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body });
+            }

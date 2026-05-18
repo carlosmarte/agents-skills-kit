@@ -1,0 +1,10 @@
+node_modules/
+.venv/
+dist/
+__pycache__/
+.pytest_cache/
+coverage/
+*.egg-info/
+.DS_Store
+package-lock.json
+uv.lock

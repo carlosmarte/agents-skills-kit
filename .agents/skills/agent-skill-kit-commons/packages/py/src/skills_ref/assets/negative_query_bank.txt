@@ -1,0 +1,1 @@
+../../../../mjs/assets/negative_query_bank.txt

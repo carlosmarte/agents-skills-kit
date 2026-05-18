@@ -1,0 +1,34 @@
+repos:
+  - repo: local
+    hooks:
+      - id: agent-skills-validate
+        name: skills-ref validate
+        entry: npx --prefix .agents/skills/agent-skill-kit-commons/packages/mjs skills-ref validate
+        language: system
+        files: ^\.agents/skills/.*/SKILL\.md$
+        pass_filenames: false
+        args: [".agents/skills/", "--extra-tiers", "company,enterprise,application"]
+
+      - id: agent-skills-lint
+        name: skills-ref lint
+        entry: npx --prefix .agents/skills/agent-skill-kit-commons/packages/mjs skills-ref lint
+        language: system
+        files: ^\.agents/skills/.*/SKILL\.md$
+        pass_filenames: false
+        args: [".agents/skills/"]
+
+      - id: agent-skills-audit
+        name: skills-ref audit
+        entry: npx --prefix .agents/skills/agent-skill-kit-commons/packages/mjs skills-ref audit
+        language: system
+        files: ^\.agents/skills/.*$
+        pass_filenames: false
+        args: [".agents/skills/"]
+
+      - id: agent-skills-deps
+        name: skills-ref deps
+        entry: npx --prefix .agents/skills/agent-skill-kit-commons/packages/mjs skills-ref deps
+        language: system
+        files: ^\.agents/skills/.*/SKILL\.md$
+        pass_filenames: false
+        args: [".agents/skills/", "--extra-tiers", "company,enterprise,application"]
